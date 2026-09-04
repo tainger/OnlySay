@@ -23,6 +23,11 @@ public class Config {
     }
 
     public static String getDeepSeekApiKey() {
+        // 优先从环境变量读取（更安全），其次从配置文件读取
+        String envKey = System.getenv("DEEPSEEK_API_KEY");
+        if (envKey != null && !envKey.isBlank()) {
+            return envKey;
+        }
         return props.getProperty("deepseek.api-key");
     }
 

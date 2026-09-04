@@ -11,13 +11,15 @@
 
 | 层 | 选型 |
 |----|------|
-| 语言 | Java 17+ |
-| 构建 | Maven |
+| 后端语言 | Java 17+ |
+| 后端构建 | Maven |
 | RAG 框架 | LangChain4j 1.19.0 |
 | 向量库 | InMemoryEmbeddingStore（内存，零配置） |
 | Embedding | 本地 ONNX 模型 `bge-small-zh-v1.5`（中文优化，首次运行自动下载） |
 | LLM | DeepSeek（OpenAI 兼容 API） |
-| 交互 | CLI 命令行 |
+| Web 框架 | Javalin 6.x（轻量 REST API） |
+| 前端 | React + Vite |
+| 交互 | Web 界面 + CLI 命令行 |
 
 ### 项目结构
 
@@ -26,9 +28,15 @@ OnlySay/
 ├── pom.xml                              # Maven 依赖
 ├── samples/
 │   └── blogger.md                       # 博主风格样本（占位示例）
+├── frontend/                            # React 前端项目
+│   ├── src/
+│   │   ├── App.jsx                      # AI 对话调试界面
+│   │   └── App.css                     # 样式
+│   └── package.json
 ├── src/main/java/com/onlysay/
-│   ├── OnlySayApplication.java           # CLI 主入口
-│   ├── Config.java                      # 配置读取
+│   ├── ApiServer.java                   # Web API 服务入口（Javalin）
+│   ├── OnlySayApplication.java          # CLI 主入口
+│   ├── Config.java                      # 配置读取（支持环境变量）
 │   ├── IngestService.java               # 样本录入 + 向量化
 │   └── GenerateService.java             # 检索 + LLM 生成
 ├── src/main/resources/
@@ -40,7 +48,15 @@ OnlySay/
 
 #### 1. 配置 DeepSeek API Key
 
-编辑 `src/main/resources/application.properties`，填入你的 DeepSeek API Key：
+**推荐方式：环境变量**（更安全，不写入文件）
+
+```bash
+export DEEPSEEK_API_KEY=sk-your-real-api-key
+```
+
+**备选方式：编辑配置文件**
+
+编辑 `src/main/resources/application.properties`：
 
 ```properties
 deepseek.api-key=sk-your-real-api-key
@@ -48,16 +64,45 @@ deepseek.api-key=sk-your-real-api-key
 
 > API Key 获取地址：https://platform.deepseek.com/
 
-#### 2. 编译运行
+#### 2. 启动后端 Web API
 
 ```bash
 cd OnlySay
 mvn compile exec:java
 ```
 
-#### 3. 使用流程
+首次运行会自动下载本地 Embedding 模型（ONNX，约 100MB），你会看到下载过程。
+后端启动后监听 `http://localhost:8080`，提供以下 API：
 
-首次运行会自动下载本地 Embedding 模型（ONNX，约 90MB），你会看到下载过程。
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| POST | `/api/ingest` | 录入博主风格样本 |
+| POST | `/api/generate` | 根据用户输入生成同风格文案 |
+| GET | `/api/health` | 健康检查 |
+
+#### 3. 启动前端调试界面
+
+```bash
+cd OnlySay/frontend
+npm install      # 首次运行需要安装依赖
+npm run dev
+```
+
+前端启动后访问终端显示的地址（通常是 `http://localhost:5173`）。
+
+**使用流程：**
+1. 点击右上角「录入样本」按钮，加载博主风格样本
+2. 在底部输入框输入你想分享的事情，按回车或点击「发送」
+3. AI 会检索最相似的 3 条风格样本（展示相似度），调用 DeepSeek 生成同风格文案
+4. 每条回复下方可展开查看检索到的风格样本详情
+
+#### 4. CLI 模式（可选）
+
+如果不想用前端，也可以直接用 CLI：
+
+```bash
+mvn compile exec:java -Dexec.mainClass="com.onlysay.OnlySayApplication"
+```
 
 ```
 ========================================

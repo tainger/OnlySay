@@ -10,6 +10,7 @@ import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -35,9 +36,16 @@ public class GenerateService {
     }
 
     /**
-     * 根据用户输入检索风格样本并生成文案
+     * 根据用户输入检索风格样本并生成文案（CLI 兼容方法，只返回文本）
      */
     public String generate(String userInput) {
+        return generateWithDetails(userInput).getGeneratedText();
+    }
+
+    /**
+     * 根据用户输入检索风格样本并生成文案，返回完整详情（含检索结果）
+     */
+    public GenerateResult generateWithDetails(String userInput) {
         System.out.println("\n🔍 正在检索相关风格样本...");
 
         // 1. 将用户输入向量化
@@ -52,6 +60,7 @@ public class GenerateService {
         EmbeddingSearchResult<TextSegment> searchResult = embeddingStore.search(searchRequest);
         List<EmbeddingMatch<TextSegment>> matches = searchResult.matches();
 
+        List<RetrievalDetail> retrievalDetails = new ArrayList<>();
         if (matches.isEmpty()) {
             System.out.println("⚠️ 未检索到相似样本，将使用通用风格生成。");
         } else {
@@ -59,6 +68,11 @@ public class GenerateService {
             for (int i = 0; i < matches.size(); i++) {
                 EmbeddingMatch<TextSegment> match = matches.get(i);
                 System.out.printf("  %d. 相似度: %.4f%n", i + 1, match.score());
+                retrievalDetails.add(new RetrievalDetail(
+                        i + 1,
+                        match.score(),
+                        match.embedded().text()
+                ));
             }
         }
 
@@ -70,7 +84,7 @@ public class GenerateService {
         String result = chatModel.chat(prompt);
 
         System.out.println("✅ 生成完成！\n");
-        return result;
+        return new GenerateResult(result, retrievalDetails);
     }
 
     /**
@@ -98,5 +112,40 @@ public class GenerateService {
         sb.append("4. 直接输出帖子内容，不要加任何说明\n");
 
         return sb.toString();
+    }
+
+    /**
+     * 生成结果（含检索详情，供 API 返回）
+     */
+    public static class GenerateResult {
+        private final String generatedText;
+        private final List<RetrievalDetail> retrievedSamples;
+
+        public GenerateResult(String generatedText, List<RetrievalDetail> retrievedSamples) {
+            this.generatedText = generatedText;
+            this.retrievedSamples = retrievedSamples;
+        }
+
+        public String getGeneratedText() { return generatedText; }
+        public List<RetrievalDetail> getRetrievedSamples() { return retrievedSamples; }
+    }
+
+    /**
+     * 检索详情（供前端展示）
+     */
+    public static class RetrievalDetail {
+        private final int index;
+        private final double score;
+        private final String text;
+
+        public RetrievalDetail(int index, double score, String text) {
+            this.index = index;
+            this.score = score;
+            this.text = text;
+        }
+
+        public int getIndex() { return index; }
+        public double getScore() { return score; }
+        public String getText() { return text; }
     }
 }
