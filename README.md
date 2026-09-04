@@ -7,6 +7,8 @@
 
 跑通 **"录入博主样本 → 语义检索风格 → LLM 生成同风格文案"** 的最小闭环。
 
+> 📖 详细架构与对话流程分析见 [docs/architecture.md](docs/architecture.md)
+
 ### 技术栈
 
 | 层 | 选型 |
