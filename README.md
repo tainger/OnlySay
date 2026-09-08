@@ -14,14 +14,16 @@
 | 层 | 选型 |
 |----|------|
 | 后端语言 | Java 17+ |
-| 后端构建 | Maven |
+| 后端框架 | Spring Boot 3.3.5（embedded Tomcat + Spring DI） |
+| 持久层 | MyBatis Spring Boot Starter 3.0.4（@Mapper 接管辅助 SQL；向量读写仍由 PgVectorEmbeddingStore 负责） |
+| 后端构建 | Maven（spring-boot-maven-plugin） |
 | RAG 框架 | LangChain4j 1.19.0 |
-| 向量库 | InMemoryEmbeddingStore（内存，零配置） |
+| 向量库 | 双后端：`InMemoryEmbeddingStore`（默认，回滚用） / `PgVectorEmbeddingStore`（PostgreSQL 14 + pgvector 0.8.6，持久化），由 `onlysay.embedding.store` 配置一键切换 |
 | Embedding | 本地 ONNX 模型 `bge-small-zh-v1.5`（中文优化，首次运行自动下载） |
 | LLM | DeepSeek V4（`deepseek-v4-flash` 生成/分类，`deepseek-v4-pro` 兜底复核，思考模式显式关闭） |
-| Web 框架 | Javalin 6.x（轻量 REST API） |
-| 前端 | React + Vite |
-| 交互 | Web 界面 + CLI 命令行 |
+| 配置 | `application.yml` + `@ConfigurationProperties(prefix="onlysay")`，环境变量优先 |
+| 前端 | React 19 + Vite 8 + Tailwind CSS v4（`@tailwindcss/vite` 插件，CSS-first 配置） |
+| 交互 | Web 界面 |
 
 ### 项目结构
 
@@ -30,19 +32,42 @@ OnlySay/
 ├── pom.xml                              # Maven 依赖
 ├── samples/
 │   └── blogger.md                       # 博主风格样本（占位示例）
-├── frontend/                            # React 前端项目
+├── frontend/                            # React 前端项目（Console Dashboard）
 │   ├── src/
-│   │   ├── App.jsx                      # AI 对话调试界面
-│   │   └── App.css                     # 样式
+│   │   ├── App.jsx                      # Shell：sidebar+topbar+4 个内容区
+│   │   ├── App.css                     # 仅 keyframes（typing/dot-pulse/sparkline）
+│   │   ├── index.css                   # Tailwind v4 入口 + @theme tokens
+│   │   ├── api.js                      # API_BASE / fetch 封装 / sessionId
+│   │   ├── hooks/
+│   │   │   ├── useChat.js               # 聊天状态（迁移自原 App.jsx）
+│   │   │   ├── useStats.js              # 15s 轮询 /api/intent/stats
+│   │   │   └── useHealth.js             # 30s 健康探测
+│   │   └── components/
+│   │       ├── Sidebar.jsx              # 240px 侧边栏 + 6 nav + 录入 CTA
+│   │       ├── Topbar.jsx               # 64px 顶栏 + 面包屑 + 搜索 + 健康点
+│   │       ├── KpiCards.jsx             # 4 卡 grid + sparkline
+│   │       ├── Sparkline.jsx            # KPI 底部迷你折线
+│   │       ├── TrendChart.jsx           # 纯 SVG 7 天调用量折线
+│   │       ├── IntentTable.jsx         # 意图分布表 5 行
+│   │       ├── StatusDot.jsx            # 彩色圆点 + pulse 呼吸
+│   │       └── ChatDebugger.jsx         # 调试会话面板（保留原 chat-bubble）
 │   └── package.json
 ├── src/main/java/com/onlysay/
-│   ├── ApiServer.java                   # Web API 服务入口（Javalin，含意图路由）
-│   ├── OnlySayApplication.java          # CLI 主入口
-│   ├── Config.java                      # 配置读取（支持环境变量）
-│   ├── ChatModelFactory.java            # ChatModel 工厂（统一关闭思考模式）
-│   ├── IngestService.java               # 样本录入 + 向量化
-│   ├── GenerateService.java             # 检索 + LLM 生成
-│   └── intent/                          # 三级漏斗意图识别模块
+│   ├── OnlySayWebApplication.java       # Spring Boot 主入口（@SpringBootApplication + @MapperScan）
+│   ├── config/
+│   │   ├── OnlySayProperties.java       # @ConfigurationProperties(prefix="onlysay")
+│   │   ├── ChatModelConfig.java         # 3 个 ChatModel @Bean（generate/classifier/fallback）
+│   │   ├── EmbeddingStoreConfig.java    # 条件 @Bean：memory | pgvector + EmbeddingModel
+│   │   └── WebConfig.java               # CORS 配置（替代 Javalin CORS）
+│   ├── web/
+│   │   ├── ApiController.java           # @RestController，5 个 /api/* 端点
+│   │   └── GlobalExceptionHandler.java  # @RestControllerAdvice 统一异常
+│   ├── mapper/
+│   │   └── VectorStatsMapper.java       # @Mapper：count/truncate（接管旧 EmbeddingStoreFactory JDBC）
+│   ├── service/
+│   │   ├── IngestService.java           # @Service 样本录入 + 向量化
+│   │   └── GenerateService.java         # @Service 检索 + LLM 生成
+│   └── intent/                          # 三级漏斗意图识别模块（@Component + 构造器注入）
 │       ├── IntentRecognizer.java        #   漏斗编排（规则→缓存→分类器→LLM兜底）
 │       ├── IntentRegistry.java          #   意图注册表（意图/槽位/关键词）
 │       ├── RuleIntentMatcher.java       #   第一级：关键词 + 正则槽位提取 + 短文本兜底
@@ -53,10 +78,10 @@ OnlySay/
 │       ├── TextNormalizer.java          #   轻量归一化（全角/零宽/空白）
 │       ├── IntentCache.java             #   精确匹配缓存（LRU）
 │       ├── DailyRateLimiter.java        #   LLM 兜底每日限流
-│       ├── IntentMetrics.java           #   指标聚合（命中率/兜底率/P95）
-│       └── CorrectionRecorder.java      #   澄清-修正配对落盘（数据回流 JSONL）
+│       ├── IntentMetrics.java           #   @Component 指标聚合（命中率/兜底率/P95）
+│       └── CorrectionRecorder.java      #   @Component 澄清-修正配对落盘（数据回流 JSONL）
 ├── src/main/resources/
-│   └── application.properties           # 配置文件
+│   └── application.yml                  # 配置文件（onlysay.* 前缀 + Spring DataSource + mybatis）
 └── README.md
 ```
 
@@ -72,19 +97,48 @@ export DEEPSEEK_API_KEY=sk-your-real-api-key
 
 **备选方式：编辑配置文件**
 
-编辑 `src/main/resources/application.properties`：
+编辑 `src/main/resources/application.yml` 中 `onlysay.deepseek.api-key` 字段：
 
-```properties
-deepseek.api-key=sk-your-real-api-key
+```yaml
+onlysay:
+  deepseek:
+    api-key: sk-your-real-api-key
 ```
 
 > API Key 获取地址：https://platform.deepseek.com/
 
-#### 2. 启动后端 Web API
+#### 2. （可选）启用 pgvector 持久化后端
+
+默认使用 `InMemoryEmbeddingStore`（进程内，重启丢数据）。如需样本跨重启保留，切换到 PostgreSQL + pgvector：
+
+**前置：本机已安装 PostgreSQL 14 + pgvector 0.8.6**
+
+```bash
+# 创建数据库与用户（首次）
+psql postgres <<'SQL'
+CREATE ROLE onlysay WITH LOGIN PASSWORD 'onlysay_dev_2026' CREATEDB;
+CREATE DATABASE onlysay OWNER onlysay;
+\c onlysay
+CREATE EXTENSION IF NOT EXISTS vector;
+GRANT ALL PRIVILEGES ON DATABASE onlysay TO onlysay;
+SQL
+```
+
+**切换配置**：编辑 `src/main/resources/application.yml`
+
+```yaml
+onlysay:
+  embedding:
+    store: pgvector    # memory | pgvector
+```
+
+切回内存模式只需改回 `onlysay.embedding.store: memory`，**一键回滚**。
+
+#### 3. 启动后端 Web API（Spring Boot）
 
 ```bash
 cd OnlySay
-mvn compile exec:java
+mvn spring-boot:run
 ```
 
 首次运行会自动下载本地 Embedding 模型（ONNX，约 100MB），你会看到下载过程。
@@ -95,8 +149,36 @@ mvn compile exec:java
 | POST | `/api/ingest` | 录入博主风格样本 |
 | POST | `/api/generate` | 前置意图路由：创作/改写走 RAG 生成，澄清返回反问，其余意图返回占位 |
 | POST | `/api/intent` | 纯意图识别调试（不触发下游执行），响应含 trace |
-| GET | `/api/intent/stats` | 识别指标：各层命中率、兜底率、澄清率、P95/P99 |
+| GET | `/api/intent/stats` | 识别指标：各层命中率、兜底率、澄清率、P95/P99、per-intent 命中计数 |
 | GET | `/api/health` | 健康检查 |
+
+#### 4. 启动前端 Console Dashboard
+
+```bash
+cd OnlySay/frontend
+npm install      # 首次运行需要安装依赖（含 Tailwind v4）
+npm run dev
+```
+
+前端启动后访问终端显示的地址（通常是 `http://localhost:5173`，如果端口被占用会自动切换）。
+
+**界面结构**（Sidebar + Topbar + 4 个内容区）：
+
+| 区域 | 说明 |
+|------|------|
+| Sidebar 左侧栏 | 紫色「录入样本」CTA + 6 项导航 + 底部用户卡 |
+| Topbar 顶栏 | 面包屑 + 搜索框 + 通知铃铛 + 后端健康状态点 |
+| KPI 卡片行 | 4 张卡：意图识别总数 / P95 延迟 / 澄清触发率 / LLM 兜底率（每卡含 sparkline 迷你折线） |
+| 调用量趋势图 | 近 7 日调用量折线（紫色实线「调用量」+ 灰色虚线「上周」），纯 SVG 绘制 |
+| 意图分布表 | 5 行意图类别（内容创作/改写润色/热点搜索/系统控制/澄清反问），命中次数 + 占比 + 状态点呼吸动画 |
+| 调试会话 | 聊天调试器：输入→意图识别→RAG 生成，回复下方可展开 trace 决策与检索样本 |
+
+**使用流程：**
+1. 点击左侧栏顶部「录入样本」按钮，加载博主风格样本（状态显示在按钮下方）
+2. 在「调试会话」区底部输入框输入内容，回车或点击「发送」
+3. AI 会先做意图识别：创作/改写请求检索最相似的 3 条风格样本（展示相似度）并生成同风格文案；模糊输入会收到澄清反问；热点/系统控制等意图返回"暂不支持"占位
+4. 每条回复下方可展开查看意图识别决策（trace 各层耗时）与检索到的风格样本详情
+5. KPI 卡片每 15s 自动刷新（也可点击顶栏健康状态点手动刷新）
 
 #### 意图识别（三级漏斗）
 
@@ -113,31 +195,7 @@ mvn compile exec:java
 - **槽位继承**：同 sessionId 下"写一篇…→改成小红书风格"自动继承 topic
 - **成本控制**：精确匹配缓存（hitLayer=CACHE）+ LLM 兜底每日上限
 - **数据回流**：澄清→修正自动配对落盘 `data/intent-corrections.jsonl`
-- **一键回滚**：`intent.enabled=false` 恢复旧版直通生成行为
-
-#### 3. 启动前端调试界面
-
-```bash
-cd OnlySay/frontend
-npm install      # 首次运行需要安装依赖
-npm run dev
-```
-
-前端启动后访问终端显示的地址（通常是 `http://localhost:5173`，如果端口被占用会自动切换）。
-
-**使用流程：**
-1. 点击右上角「录入样本」按钮，加载博主风格样本
-2. 在底部输入框输入你想分享的事情，按回车或点击「发送」
-3. AI 会先做意图识别：创作/改写请求检索最相似的 3 条风格样本（展示相似度）并生成同风格文案；模糊输入会收到澄清反问；热点/系统控制等意图返回"暂不支持"占位
-4. 每条回复下方可展开查看意图识别决策（trace 各层耗时）与检索到的风格样本详情
-
-#### 4. CLI 模式（可选）
-
-如果不想用前端，也可以直接用 CLI：
-
-```bash
-mvn compile exec:java -Dexec.mainClass="com.onlysay.OnlySayApplication"
-```
+- **一键回滚**：`onlysay.intent.enabled=false` 恢复旧版直通生成行为
 
 ```
 ========================================

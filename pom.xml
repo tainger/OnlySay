@@ -4,26 +4,35 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+
     <groupId>com.onlysay</groupId>
     <artifactId>onlysay-rag</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>OnlySay RAG MVP</name>
-    <description>最小化 RAG Demo：博主风格样本检索 + LLM 生成同风格文案</description>
+    <description>Spring Boot + MyBatis + PgVectorEmbeddingStore：博主风格样本检索 + LLM 生成同风格文案</description>
 
     <properties>
+        <java.version>17</java.version>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <langchain4j.version>1.19.0</langchain4j.version>
         <langchain4j.embeddings.version>1.19.0-beta29</langchain4j.embeddings.version>
         <djl.version>0.29.0</djl.version>
+        <mybatis-spring-boot.version>3.0.4</mybatis-spring-boot.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-            <!-- 强制 DJL 版本，修复 macOS native library 加载问题 -->
+            <!-- 强制 DJL 版本，修复 macOS native library 加载问题（README 已知问题） -->
             <dependency>
                 <groupId>ai.djl</groupId>
                 <artifactId>api</artifactId>
@@ -45,7 +54,29 @@
     </repositories>
 
     <dependencies>
-        <!-- LangChain4j 聚合包（包含 RAG 高阶功能，如 InMemoryEmbeddingStore） -->
+        <!-- Spring Boot：Web + JDBC + 测试 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- MyBatis Spring Boot Starter（兼容 Spring Boot 3.x） -->
+        <dependency>
+            <groupId>org.mybatis.spring.boot</groupId>
+            <artifactId>mybatis-spring-boot-starter</artifactId>
+            <version>${mybatis-spring-boot.version}</version>
+        </dependency>
+
+        <!-- LangChain4j 聚合包（含 InMemoryEmbeddingStore 等 RAG 高阶功能） -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
@@ -66,11 +97,11 @@
             <version>${langchain4j.embeddings.version}</version>
         </dependency>
 
-        <!-- PostgreSQL JDBC 驱动（PgVectorEmbeddingStore 内部使用） -->
+        <!-- PostgreSQL JDBC 驱动（PgVectorEmbeddingStore 与 Spring DataSource 共用） -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>42.7.3</version>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- LangChain4j PgVector 向量库实现（版本与 embeddings 对齐） -->
@@ -79,59 +110,19 @@
             <artifactId>langchain4j-pgvector</artifactId>
             <version>${langchain4j.embeddings.version}</version>
         </dependency>
-
-        <!-- Javalin 轻量 Web 框架（暴露 REST API 供前端调试） -->
-        <dependency>
-            <groupId>io.javalin</groupId>
-            <artifactId>javalin</artifactId>
-            <version>6.3.0</version>
-        </dependency>
-
-        <!-- JSON 序列化 -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>2.17.2</version>
-        </dependency>
-
-        <!-- 日志 -->
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <version>2.0.13</version>
-        </dependency>
-
-        <!-- 测试 -->
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>5.10.2</version>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
         <plugins>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
-                <configuration>
-                    <source>17</source>
-                    <target>17</target>
-                </configuration>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
-            </plugin>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>3.3.0</version>
                 <configuration>
-                    <mainClass>com.onlysay.ApiServer</mainClass>
+                    <argLine>-Xss2m</argLine>
                 </configuration>
             </plugin>
         </plugins>

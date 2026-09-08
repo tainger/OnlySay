@@ -1,5 +1,6 @@
-package com.onlysay;
+package com.onlysay.service;
 
+import com.onlysay.config.OnlySayProperties;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatModel;
@@ -8,27 +9,39 @@ import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 生成服务：用户输入 → 语义检索相似风格样本 → 组装 Prompt → LLM 生成同风格文案
+ * 生成服务：用户输入 → 语义检索相似风格样本 → 组装 Prompt → LLM 生成同风格文案。
+ *
+ * 改造自原 GenerateService：构造器注入 EmbeddingModel/EmbeddingStore/ChatModel Bean，
+ * 替代旧版 ChatModelFactory.build(...) 静态调用。
  */
+@Service
 public class GenerateService {
+
+    private static final Logger log = LoggerFactory.getLogger(GenerateService.class);
 
     private final ChatModel chatModel;
     private final EmbeddingModel embeddingModel;
     private final EmbeddingStore<TextSegment> embeddingStore;
+    private final OnlySayProperties props;
 
-    public GenerateService(EmbeddingModel embeddingModel,
-                           EmbeddingStore<TextSegment> embeddingStore) {
+    public GenerateService(@Qualifier("generateChatModel") ChatModel chatModel,
+                           EmbeddingModel embeddingModel,
+                           EmbeddingStore<TextSegment> embeddingStore,
+                           OnlySayProperties props) {
+        this.chatModel = chatModel;
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
-        // 统一走工厂构建：显式关闭 V4 思考模式（D4）
-        this.chatModel = ChatModelFactory.build(Config.getDeepSeekModel(), 0.7,
-                java.time.Duration.ofSeconds(120));
-        System.out.println("DeepSeek 对话模型已就绪: " + Config.getDeepSeekModel() + "（思考模式已关闭）");
+        this.props = props;
+        log.info("DeepSeek 对话模型已就绪: {}（思考模式已关闭）", props.getDeepseek().getModel());
     }
 
     /**
@@ -42,7 +55,7 @@ public class GenerateService {
      * 根据用户输入检索风格样本并生成文案，返回完整详情（含检索结果）
      */
     public GenerateResult generateWithDetails(String userInput) {
-        System.out.println("\n🔍 正在检索相关风格样本...");
+        log.info("正在检索相关风格样本...");
 
         // 1. 将用户输入向量化
         Embedding queryEmbedding = embeddingModel.embed(userInput).content();
@@ -50,20 +63,20 @@ public class GenerateService {
         // 2. 从向量库检索 Top-K 相似样本
         EmbeddingSearchRequest searchRequest = EmbeddingSearchRequest.builder()
                 .queryEmbedding(queryEmbedding)
-                .maxResults(Config.getRetrievalMaxResults())
-                .minScore(Config.getRetrievalMinScore())
+                .maxResults(props.getRetrieval().getMaxResults())
+                .minScore(props.getRetrieval().getMinScore())
                 .build();
         EmbeddingSearchResult<TextSegment> searchResult = embeddingStore.search(searchRequest);
         List<EmbeddingMatch<TextSegment>> matches = searchResult.matches();
 
         List<RetrievalDetail> retrievalDetails = new ArrayList<>();
         if (matches.isEmpty()) {
-            System.out.println("⚠️ 未检索到相似样本，将使用通用风格生成。");
+            log.warn("未检索到相似样本，将使用通用风格生成。");
         } else {
-            System.out.println("检索到 " + matches.size() + " 条相关风格样本:");
+            log.info("检索到 {} 条相关风格样本", matches.size());
             for (int i = 0; i < matches.size(); i++) {
                 EmbeddingMatch<TextSegment> match = matches.get(i);
-                System.out.printf("  %d. 相似度: %.4f%n", i + 1, match.score());
+                log.info("  {}. 相似度: {}", i + 1, String.format("%.4f", match.score()));
                 retrievalDetails.add(new RetrievalDetail(
                         i + 1,
                         match.score(),
@@ -76,10 +89,10 @@ public class GenerateService {
         String prompt = buildPrompt(userInput, matches);
 
         // 4. 调用 LLM 生成
-        System.out.println("\n🤖 正在调用 DeepSeek 生成文案...");
+        log.info("正在调用 DeepSeek 生成文案...");
         String result = chatModel.chat(prompt);
 
-        System.out.println("✅ 生成完成！\n");
+        log.info("生成完成！");
         return new GenerateResult(result, retrievalDetails);
     }
 

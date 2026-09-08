@@ -1,6 +1,7 @@
 package com.onlysay.intent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Component;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -15,7 +16,11 @@ import java.util.Map;
  * 修正事件配对与数据回流：CLARIFICATION 轮 + 同会话下一轮非 CLARIFICATION 结果
  * 自动配对为一条修正记录，追加写入本地 JSONL（重启不丢失），
  * 供后续生成训练样本/扩充 few-shot 示例库（本类不做自动微调）。
+ *
+ * 改造自原 CorrectionRecorder：加 @Component 让 Spring 容器管理单例，
+ * 保留测试用 Path 构造器（IntentRecognizerTest 直接 new）。
  */
+@Component
 public class CorrectionRecorder {
 
     private static final String DEFAULT_FILE = "data/intent-corrections.jsonl";

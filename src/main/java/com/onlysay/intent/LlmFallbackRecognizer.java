@@ -2,11 +2,11 @@ package com.onlysay.intent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.onlysay.ChatModelFactory;
-import com.onlysay.Config;
 import dev.langchain4j.model.chat.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,19 +15,19 @@ import java.util.Optional;
 /**
  * 第三级 LLM 兜底识别（deepseek-v4-pro）：Few-shot + JSON 输出 + 注册表驱动校验。
  * 返回 empty 表示两次尝试均失败（编排层据此产出 hitLayer=FALLBACK 的澄清兜底）。
+ *
+ * 改造自原 LlmFallbackRecognizer：删除依赖 Config 的无参构造器，
+ * 改用 Spring DI 注入 fallbackChatModel Bean。
  */
+@Component
+@ConditionalOnProperty(name = "onlysay.intent.enabled", havingValue = "true", matchIfMissing = true)
 public class LlmFallbackRecognizer {
 
     private final ChatModel chatModel;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public LlmFallbackRecognizer() {
-        this(ChatModelFactory.build(
-                Config.getIntentLlmModel(), 0.1, Duration.ofSeconds(40)));
-    }
-
-    /** 测试用：注入自定义 ChatModel */
-    LlmFallbackRecognizer(ChatModel chatModel) {
+    /** Spring DI 主构造器：注入 fallbackChatModel Bean */
+    public LlmFallbackRecognizer(@Qualifier("fallbackChatModel") ChatModel chatModel) {
         this.chatModel = chatModel;
     }
 

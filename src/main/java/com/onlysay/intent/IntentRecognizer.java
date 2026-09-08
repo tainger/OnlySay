@@ -1,6 +1,8 @@
 package com.onlysay.intent;
 
-import com.onlysay.Config;
+import com.onlysay.config.OnlySayProperties;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,7 +13,12 @@ import java.util.TreeMap;
 /**
  * 三级漏斗编排：归一化 → 规则 → 缓存 → 分类器（可关闭）→ LLM 兜底 → 校验 → 继承合并。
  * 产出 IntentResult + IntentTrace，并负责修正配对与指标记录。
+ *
+ * 改造自原 IntentRecognizer：删除依赖 Config 的无参构造器，
+ * 改用 Spring DI 注入 LlmFallbackRecognizer / IntentMetrics / CorrectionRecorder / OnlySayProperties。
+ * LlmIntentClassifier 是 @ConditionalOnProperty Bean，关闭时容器中不存在，通过 @Autowired(required=false) 注入 null。
  */
+@Component
 public class IntentRecognizer {
 
     /** 识别输出：结果 + 全程 trace */
@@ -30,19 +37,31 @@ public class IntentRecognizer {
     private final DailyRateLimiter rateLimiter;
     private final DialogueState dialogueState = new DialogueState();
     private final CorrectionRecorder correctionRecorder;
-    private final IntentMetrics metrics = new IntentMetrics();
+    private final IntentMetrics metrics;
+    private final OnlySayProperties props;
 
-    public IntentRecognizer(CorrectionRecorder correctionRecorder) {
-        this(
-                "none".equalsIgnoreCase(Config.getIntentClassifier())
-                        ? null : new LlmIntentClassifier(),
-                new LlmFallbackRecognizer(),
-                new IntentCache(Config.getIntentCacheSize()),
-                new DailyRateLimiter(Config.getIntentLlmDailyLimit()),
-                correctionRecorder);
+    /**
+     * Spring DI 主构造器：
+     *   - classifier 通过 @Autowired(required=false) 注入，intent.classifier=none 时为 null
+     *   - fallbackRecognizer / metrics / correctionRecorder 由容器装配
+     *   - props 提供 cacheSize 与 llmDailyLimit（构造期 new IntentCache/DailyRateLimiter）
+     */
+    @Autowired
+    public IntentRecognizer(@Autowired(required = false) IntentClassifier classifier,
+                            LlmFallbackRecognizer fallbackRecognizer,
+                            IntentMetrics metrics,
+                            CorrectionRecorder correctionRecorder,
+                            OnlySayProperties props) {
+        this.classifier = classifier;
+        this.fallbackRecognizer = fallbackRecognizer;
+        this.metrics = metrics;
+        this.correctionRecorder = correctionRecorder;
+        this.props = props;
+        this.cache = new IntentCache(props.getIntent().getCacheSize());
+        this.rateLimiter = new DailyRateLimiter(props.getIntent().getLlmDailyLimit());
     }
 
-    /** 测试用全参构造：注入分类器/兜底/缓存/限流，模拟各层行为 */
+    /** 测试用全参构造：注入分类器/兜底/缓存/限流/记录器，模拟各层行为 */
     IntentRecognizer(IntentClassifier classifier,
                      LlmFallbackRecognizer fallbackRecognizer,
                      IntentCache cache,
@@ -53,6 +72,8 @@ public class IntentRecognizer {
         this.cache = cache;
         this.rateLimiter = rateLimiter;
         this.correctionRecorder = correctionRecorder;
+        this.metrics = new IntentMetrics();
+        this.props = null;
     }
 
     public Recognition recognize(String rawInput, String sessionId) {
@@ -126,7 +147,7 @@ public class IntentRecognizer {
         // ===== 第三级：LLM 兜底复核（每日限额） =====
         t = System.currentTimeMillis();
         if (!rateLimiter.tryAcquire()) {
-            System.out.println("⛔ 意图识别 LLM 兜底已达每日上限（" + Config.getIntentLlmDailyLimit() + "），本次直接澄清");
+            System.out.println("⛔ 意图识别 LLM 兜底已达每日上限，本次直接澄清");
             trace.addLayer("LLM", "rate-limited", 0.0, System.currentTimeMillis() - t, null);
             IntentResult result = new IntentResult(IntentType.CLARIFICATION, Map.of(), 0.0,
                     HitLayer.FALLBACK, false, List.of(), ClarificationText.fallback());

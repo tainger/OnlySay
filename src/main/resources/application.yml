@@ -1,0 +1,43 @@
+# OnlySay RAG MVP 配置（Spring Boot）
+# 修改后需重启服务生效；环境变量优先（YAML 中通过 ${VAR:default} 语法）
+
+spring:
+  application:
+    name: onlysay
+  # Spring DataSource（供 MyBatis Mapper 使用；PgVectorEmbeddingStore 内部自管连接）
+  datasource:
+    url: jdbc:postgresql://${onlysay.pg.host:localhost}:${onlysay.pg.port:5432}/${onlysay.pg.database:onlysay}
+    username: ${onlysay.pg.user:onlysay}
+    password: ${onlysay.pg.password:onlysay_dev_2026}
+    driver-class-name: org.postgresql.Driver
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+# 业务配置（onlysay 前缀）
+onlysay:
+  deepseek:
+    api-key: ${DEEPSEEK_API_KEY:sk-your-deepseek-api-key-here}
+    base-url: https://api.deepseek.com/v1
+    model: deepseek-v4-flash
+  embedding:
+    model-name: bge-small-zh-v1.5
+    store: pgvector          # memory（默认，回滚用） | pgvector（PostgreSQL + pgvector，持久化）
+  retrieval:
+    max-results: 3
+    min-score: 0.5
+  pg:
+    host: localhost
+    port: 5432
+    database: onlysay
+    user: onlysay
+    password: onlysay_dev_2026
+    vector-table: onlysay_embeddings
+  intent:
+    enabled: true           # 总开关：false 时 /api/generate 跳过识别直接生成（旧行为，回滚用）
+    classifier: llm          # 第二级分类器：llm（v4-flash 轻量分类） | none（跳过，规则未命中直接进第三级）
+    classifier-model: deepseek-v4-flash
+    llm-model: deepseek-v4-pro   # 第三级 LLM 兜底复核模型
+    llm-daily-limit: 5000        # 第三级 LLM 兜底每日调用上限（自然日重置）
+    cache-size: 1000              # 识别结果精确匹配缓存容量（LRU）

@@ -2,30 +2,30 @@ package com.onlysay.intent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.onlysay.ChatModelFactory;
-import com.onlysay.Config;
 import dev.langchain4j.model.chat.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * 第二级默认实现：调用 deepseek-v4-flash（非思考模式、temperature≈0.1、短 Prompt）
  * 输出各意图置信度 JSON 分布，支持主/副意图多标签。
+ *
+ * 改造自原 LlmIntentClassifier：删除依赖 Config 的无参构造器，
+ * 改用 Spring DI 注入 classifierChatModel Bean（ChatModelConfig 装配，已显式关闭思考模式）。
  */
+@Component
+@ConditionalOnProperty(name = "onlysay.intent.classifier", havingValue = "llm", matchIfMissing = true)
 public class LlmIntentClassifier implements IntentClassifier {
 
     private final ChatModel chatModel;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public LlmIntentClassifier() {
-        this(ChatModelFactory.build(
-                Config.getIntentClassifierModel(), 0.1, Duration.ofSeconds(20)));
-    }
-
-    /** 测试用：注入自定义 ChatModel */
-    LlmIntentClassifier(ChatModel chatModel) {
+    /** Spring DI 主构造器：注入 classifierChatModel Bean */
+    public LlmIntentClassifier(@Qualifier("classifierChatModel") ChatModel chatModel) {
         this.chatModel = chatModel;
     }
 
