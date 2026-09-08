@@ -17,6 +17,8 @@ mybatis:
 
 # 业务配置（onlysay 前缀）
 onlysay:
+  log:
+    dir: ${ONLYSAY_LOG_DIR:./log}   # 日志输出目录（默认当前工作目录下 log/，logback-spring.xml 引用）
   deepseek:
     api-key: ${DEEPSEEK_API_KEY:sk-your-deepseek-api-key-here}
     base-url: https://api.deepseek.com/v1
