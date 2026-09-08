@@ -25,8 +25,7 @@ data/
 
 # 运行日志（logback 输出）
 log/
+LOG_DIR_IS_UNDEFINED/
 
 # 系统文件
 .DS_Store
-LOG_DIR_IS_UNDEFINED/APP_NAME_IS_UNDEFINED-error.log
-LOG_DIR_IS_UNDEFINED/APP_NAME_IS_UNDEFINED.log
