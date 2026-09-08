@@ -5,7 +5,7 @@ import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.bgesmallzhv15.BgeSmallZhV15EmbeddingModel;
-import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
+import dev.langchain4j.store.embedding.EmbeddingStore;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -16,12 +16,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 样本录入服务：读取博主样本 → 切分 → 向量化 → 存入内存向量库
+ * 样本录入服务：读取博主样本 → 切分 → 向量化 → 存入向量库
+ * 向量库后端由 embedding.store 配置决定（memory | pgvector）
  */
 public class IngestService {
 
     private final EmbeddingModel embeddingModel;
-    private final InMemoryEmbeddingStore<TextSegment> embeddingStore;
+    private final EmbeddingStore<TextSegment> embeddingStore;
 
     public IngestService() {
         System.out.println("========================================");
@@ -29,8 +30,8 @@ public class IngestService {
         System.out.println("首次运行会自动下载 ONNX 模型到 ~/.langchain4j/");
         System.out.println("========================================");
         this.embeddingModel = new BgeSmallZhV15EmbeddingModel();
-        this.embeddingStore = new InMemoryEmbeddingStore<>();
-        System.out.println("Embedding 模型就绪！向量库已初始化。\n");
+        this.embeddingStore = EmbeddingStoreFactory.build();
+        System.out.println("Embedding 模型就绪！向量库后端: " + Config.getEmbeddingStoreType() + "\n");
     }
 
     /**
@@ -68,10 +69,12 @@ public class IngestService {
             System.out.println("向量化完成！每条向量维度: " + embeddings.get(0).dimension());
 
             // 存入向量库
+            System.out.println("清空旧向量数据（若存在）...");
+            EmbeddingStoreFactory.clear(embeddingStore);
             for (int i = 0; i < embeddings.size(); i++) {
                 embeddingStore.add(embeddings.get(i), segments.get(i));
             }
-            System.out.println("\n✅ 录入完成！向量库中共 " + embeddingStore.size() + " 条记录。");
+            System.out.println("\n✅ 录入完成！向量库中共 " + EmbeddingStoreFactory.count(embeddingStore) + " 条记录。");
 
         } catch (IOException e) {
             throw new RuntimeException("读取样本文件失败", e);
@@ -112,7 +115,12 @@ public class IngestService {
         return embeddingModel;
     }
 
-    public InMemoryEmbeddingStore<TextSegment> getEmbeddingStore() {
+    public EmbeddingStore<TextSegment> getEmbeddingStore() {
         return embeddingStore;
+    }
+
+    /** 当前向量库记录数（封装 EmbeddingStoreFactory.count，供 ApiServer 调用） */
+    public int getRecordCount() {
+        return EmbeddingStoreFactory.count(embeddingStore);
     }
 }

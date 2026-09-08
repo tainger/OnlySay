@@ -52,6 +52,45 @@ public class Config {
         return Double.parseDouble(props.getProperty("retrieval.min-score", "0.5"));
     }
 
+    // ===== 向量库配置 =====
+
+    /** 向量库后端：memory | pgvector（默认 memory，保证回滚） */
+    public static String getEmbeddingStoreType() {
+        return props.getProperty("embedding.store", "memory");
+    }
+
+    /** pgvector 表名 */
+    public static String getPgVectorTable() {
+        return props.getProperty("pg.vector.table", "onlysay_embeddings");
+    }
+
+    /** bge-small-zh-v1.5 输出维度固定 512 */
+    public static int getEmbeddingDimension() {
+        return 512;
+    }
+
+    // ===== PostgreSQL 连接参数（pgvector 用） =====
+
+    public static String getPgHost() {
+        return props.getProperty("pg.host", "localhost");
+    }
+
+    public static int getPgPort() {
+        return Integer.parseInt(props.getProperty("pg.port", "5432"));
+    }
+
+    public static String getPgDatabase() {
+        return props.getProperty("pg.database", "onlysay");
+    }
+
+    public static String getPgUser() {
+        return props.getProperty("pg.user", "onlysay");
+    }
+
+    public static String getPgPassword() {
+        return props.getProperty("pg.password", "");
+    }
+
     // ===== 意图识别配置 =====
 
     /** 意图识别总开关：false 时 /api/generate 行为与旧版一致（跳过识别直接生成） */

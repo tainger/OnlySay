@@ -66,6 +66,20 @@
             <version>${langchain4j.embeddings.version}</version>
         </dependency>
 
+        <!-- PostgreSQL JDBC 驱动（PgVectorEmbeddingStore 内部使用） -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.3</version>
+        </dependency>
+
+        <!-- LangChain4j PgVector 向量库实现（版本与 embeddings 对齐） -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-pgvector</artifactId>
+            <version>${langchain4j.embeddings.version}</version>
+        </dependency>
+
         <!-- Javalin 轻量 Web 框架（暴露 REST API 供前端调试） -->
         <dependency>
             <groupId>io.javalin</groupId>

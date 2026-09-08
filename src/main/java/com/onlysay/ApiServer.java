@@ -106,7 +106,7 @@ public class ApiServer {
             Map<String, Object> result = new HashMap<>();
             result.put("success", true);
             result.put("message", "样本录入完成");
-            result.put("totalRecords", ingestService.getEmbeddingStore().size());
+            result.put("totalRecords", ingestService.getRecordCount());
             ctx.json(result);
         } catch (Exception e) {
             ctx.status(HttpStatus.INTERNAL_SERVER_ERROR);
@@ -165,7 +165,7 @@ public class ApiServer {
                 }
 
                 // 创作意图：先查样本库，再走 RAG（响应附带 intent/trace）
-                if (ingestService.getEmbeddingStore().size() == 0) {
+                if (ingestService.getRecordCount() == 0) {
                     ctx.status(HttpStatus.BAD_REQUEST);
                     Map<String, Object> error = baseResponse(intentResult, recognition.trace());
                     error.put("success", false);
@@ -184,7 +184,7 @@ public class ApiServer {
             }
 
             // ===== 旧版直通路径（intent.enabled=false）=====
-            if (ingestService.getEmbeddingStore().size() == 0) {
+            if (ingestService.getRecordCount() == 0) {
                 ctx.status(HttpStatus.BAD_REQUEST);
                 Map<String, Object> error = new HashMap<>();
                 error.put("success", false);
