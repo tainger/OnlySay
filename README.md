@@ -58,17 +58,22 @@ OnlySay/
 │   │   ├── OnlySayProperties.java       # @ConfigurationProperties(prefix="onlysay")
 │   │   ├── ChatModelConfig.java         # 3 个 ChatModel @Bean（generate/classifier/fallback）
 │   │   ├── EmbeddingStoreConfig.java    # 条件 @Bean：memory | pgvector + EmbeddingModel
+│   │   ├── IntentSchemaInitializer.java # pgvector 模式启动自动建 3 张意图业务表
 │   │   └── WebConfig.java               # CORS 配置（替代 Javalin CORS）
 │   ├── web/
 │   │   ├── ApiController.java           # @RestController，5 个 /api/* 端点
 │   │   └── GlobalExceptionHandler.java  # @RestControllerAdvice 统一异常
 │   ├── mapper/
-│   │   └── VectorStatsMapper.java       # @Mapper：count/truncate（接管旧 EmbeddingStoreFactory JDBC）
+│   │   ├── VectorStatsMapper.java       # @Mapper：count/truncate（接管旧 EmbeddingStoreFactory JDBC）
+│   │   ├── IntentLogMapper.java         # @Mapper：识别明细 + 修正配对 INSERT
+│   │   └── IntentMetricsMapper.java     # @Mapper：指标快照 INSERT
 │   ├── service/
 │   │   ├── IngestService.java           # @Service 样本录入 + 向量化
-│   │   └── GenerateService.java         # @Service 检索 + LLM 生成
+│   │   ├── GenerateService.java         # @Service 检索 + LLM 生成
+│   │   ├── IntentPersistenceService.java# @Service 意图数据落库（pgvector 模式，失败不阻断主链路）
+│   │   └── MetricsSnapshotScheduler.java# @Scheduled 每 5 分钟 + 关闭前刷指标快照
 │   └── intent/                          # 三级漏斗意图识别模块（@Component + 构造器注入）
-│       ├── IntentRecognizer.java        #   漏斗编排（规则→缓存→分类器→LLM兜底）
+│       ├── IntentRecognizer.java        #   漏斗编排（规则→缓存→分类器→LLM兜底→落库）
 │       ├── IntentRegistry.java          #   意图注册表（意图/槽位/关键词）
 │       ├── RuleIntentMatcher.java       #   第一级：关键词 + 正则槽位提取 + 短文本兜底
 │       ├── IntentClassifier.java        #   第二级 SPI + LlmIntentClassifier（v4-flash）
@@ -78,10 +83,11 @@ OnlySay/
 │       ├── TextNormalizer.java          #   轻量归一化（全角/零宽/空白）
 │       ├── IntentCache.java             #   精确匹配缓存（LRU）
 │       ├── DailyRateLimiter.java        #   LLM 兜底每日限流
-│       ├── IntentMetrics.java           #   @Component 指标聚合（命中率/兜底率/P95）
+│       ├── IntentMetrics.java           #   @Component 指标聚合（命中率/兜底率/P95，内存计数）
 │       └── CorrectionRecorder.java      #   @Component 澄清-修正配对落盘（数据回流 JSONL）
 ├── src/main/resources/
-│   └── application.yml                  # 配置文件（onlysay.* 前缀 + Spring DataSource + mybatis）
+│   ├── application.yml                  # 配置文件（onlysay.* 前缀 + Spring DataSource + mybatis）
+│   └── logback-spring.xml               # 日志：控制台 + log/ 文件按天滚动（onlysay.log.dir 配置目录）
 └── README.md
 ```
 
@@ -194,26 +200,22 @@ npm run dev
 - **澄清兜底**：必需槽位缺失/全部层级失败 → 返回反问话术而非静默失败
 - **槽位继承**：同 sessionId 下"写一篇…→改成小红书风格"自动继承 topic
 - **成本控制**：精确匹配缓存（hitLayer=CACHE）+ LLM 兜底每日上限
-- **数据回流**：澄清→修正自动配对落盘 `data/intent-corrections.jsonl`
+- **数据回流**：澄清→修正自动配对，JSONL（`data/intent-corrections.jsonl`）与 PostgreSQL 双写
 - **一键回滚**：`onlysay.intent.enabled=false` 恢复旧版直通生成行为
 
-```
-========================================
-   OnlySay - RAG 风格生成 Demo
-========================================
+#### 意图识别数据落盘（pgvector 模式）
 
-----------------------------------------
-请选择操作:
-  1) 录入博主风格样本
-  2) 输入你的事情，生成同风格文案
-  3) 退出
-请输入选项 (1/2/3): 1
-```
+`onlysay.embedding.store=pgvector` 时，启动自动建表（`IntentSchemaInitializer`，CREATE TABLE IF NOT EXISTS）：
 
-**步骤：**
-1. 先选 `1` 录入样本（将 `samples/blogger.md` 中的 10 条帖子向量化存入内存）
-2. 再选 `2`，输入你想分享的事情，系统会检索最相似的 3 条风格样本，调用 DeepSeek 生成同风格文案
-3. 选 `3` 退出
+| 表 | 写入时机 | 主要字段 |
+|----|---------|---------|
+| `intent_recognition_log` | 每次识别一行（finalize 收口） | session_id、user_input、intent、hit_layer、confidence、latency_ms、trace(JSONB) |
+| `intent_correction` | 澄清轮的下一轮非澄清结果配对成功 | clarification_input、correction_input、final_intent、final_hit_layer |
+| `intent_metrics_snapshot` | 定时每 5 分钟 + 应用关闭前各刷一次 | total_requests、layer_hits(JSONB)、intent_counts(JSONB)、p95_ms、p99_ms |
+
+- 实时指标仍是进程内 `LongAdder` 计数（高频写不碰库），快照表只用于跨重启趋势
+- 落库失败只记 warn 日志、不阻断识别主链路；memory 模式下三张表不创建、不写入
+- 快照间隔可配：`onlysay.intent.metrics-snapshot-interval-ms`（默认 300000）
 
 ### 替换真实博主样本
 

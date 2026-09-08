@@ -1,6 +1,7 @@
 package com.onlysay.intent;
 
 import com.onlysay.config.OnlySayProperties;
+import com.onlysay.service.IntentPersistenceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -39,10 +40,13 @@ public class IntentRecognizer {
     private final CorrectionRecorder correctionRecorder;
     private final IntentMetrics metrics;
     private final OnlySayProperties props;
+    /** 识别数据落库（仅 pgvector 模式装配，memory 模式/测试为 null） */
+    private final IntentPersistenceService persistence;
 
     /**
      * Spring DI 主构造器：
      *   - classifier 通过 @Autowired(required=false) 注入，intent.classifier=none 时为 null
+     *   - persistence 通过 @Autowired(required=false) 注入，embedding.store=memory 时为 null
      *   - fallbackRecognizer / metrics / correctionRecorder 由容器装配
      *   - props 提供 cacheSize 与 llmDailyLimit（构造期 new IntentCache/DailyRateLimiter）
      */
@@ -51,12 +55,14 @@ public class IntentRecognizer {
                             LlmFallbackRecognizer fallbackRecognizer,
                             IntentMetrics metrics,
                             CorrectionRecorder correctionRecorder,
-                            OnlySayProperties props) {
+                            OnlySayProperties props,
+                            @Autowired(required = false) IntentPersistenceService persistence) {
         this.classifier = classifier;
         this.fallbackRecognizer = fallbackRecognizer;
         this.metrics = metrics;
         this.correctionRecorder = correctionRecorder;
         this.props = props;
+        this.persistence = persistence;
         this.cache = new IntentCache(props.getIntent().getCacheSize());
         this.rateLimiter = new DailyRateLimiter(props.getIntent().getLlmDailyLimit());
     }
@@ -74,6 +80,7 @@ public class IntentRecognizer {
         this.correctionRecorder = correctionRecorder;
         this.metrics = new IntentMetrics();
         this.props = null;
+        this.persistence = null;
     }
 
     public Recognition recognize(String rawInput, String sessionId) {
@@ -183,7 +190,8 @@ public class IntentRecognizer {
 
         // 修正配对：上一轮为澄清轮且本轮非澄清 → 落盘修正记录（数据回流）
         String clarificationInput = dialogueState.consumeClarificationInput(sessionId);
-        correctionRecorder.maybeRecord(sessionId, clarificationInput, rawInput, result);
+        boolean correctionPaired =
+                correctionRecorder.maybeRecord(sessionId, clarificationInput, rawInput, result);
 
         // 意图切换检测 + 槽位继承
         boolean switchDetected = SwitchDetector.isSwitchSignal(normalized);
@@ -195,6 +203,14 @@ public class IntentRecognizer {
 
         dialogueState.push(sessionId, rawInput, merged);
         metrics.record(merged, elapsed);
+
+        // 落库（仅 pgvector 模式 persistence 非 null；失败已在服务内吞掉，不阻断主链路）
+        if (persistence != null) {
+            persistence.logRecognition(sessionId, rawInput, merged, elapsed, trace);
+            if (correctionPaired) {
+                persistence.logCorrection(sessionId, clarificationInput, rawInput, merged);
+            }
+        }
         return new Recognition(merged, trace);
     }
 

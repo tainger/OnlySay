@@ -49,14 +49,15 @@ public class CorrectionRecorder {
      * @param clarificationInput 上一轮澄清输入（null 表示不构成修正）
      * @param currentInput       本轮用户输入（即修正内容）
      * @param currentResult      本轮识别结果
+     * @return true 表示本轮构成修正并已写入 JSONL（调用方可据此同步写 DB）
      */
-    public void maybeRecord(String sessionId, String clarificationInput,
-                            String currentInput, IntentResult currentResult) {
+    public boolean maybeRecord(String sessionId, String clarificationInput,
+                               String currentInput, IntentResult currentResult) {
         if (clarificationInput == null || clarificationInput.isBlank()) {
-            return; // 非澄清轮不产生修正记录
+            return false; // 非澄清轮不产生修正记录
         }
         if (currentResult.getIntent() == IntentType.CLARIFICATION) {
-            return; // 连续澄清不配对
+            return false; // 连续澄清不配对
         }
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("timestamp", Instant.now().toString());
@@ -67,6 +68,7 @@ public class CorrectionRecorder {
         record.put("finalIntent", currentResult.getIntent().name());
         record.put("finalHitLayer", currentResult.getHitLayer().name());
         append(record);
+        return true;
     }
 
     private synchronized void append(Map<String, Object> record) {
