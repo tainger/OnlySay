@@ -4,13 +4,19 @@
   - 控制台：彩色输出，开发时看
   - 文件：落盘到 ${LOG_DIR}（默认当前工作目录 ./log），按日期滚动 + gzip 归档
   - 日志目录由 application.yml 的 onlysay.log.dir 控制，环境变量 ONLYSAY_LOG_DIR 可覆盖
+
+  注意：不要加 scan="true" —— logback 重扫描时用原生 JoranConfigurator 解析，
+  不认识 <springProperty>，会把变量渲染成 LOG_DIR_IS_UNDEFINED 并创建垃圾目录。
+  下面先声明 logback 原生 <property> 兜底默认值，springProperty 在 Spring 环境下覆盖之。
 -->
-<configuration scan="true" scanPeriod="30 seconds">
+<configuration>
 
-    <!-- 从 Spring 配置读取日志目录：onlysay.log.dir，缺省 ./log -->
+    <!-- 原生兜底默认值：非 Spring Boot 解析器（如误被 logback 直接加载）也不会出现 *_IS_UNDEFINED -->
+    <property name="LOG_DIR" value="./log"/>
+    <property name="APP_NAME" value="onlysay"/>
+
+    <!-- 从 Spring 配置读取：onlysay.log.dir / spring.application.name（覆盖上面的默认值） -->
     <springProperty name="LOG_DIR" source="onlysay.log.dir" defaultValue="./log"/>
-
-    <!-- 应用名（用于日志文件命名） -->
     <springProperty name="APP_NAME" source="spring.application.name" defaultValue="onlysay"/>
 
     <!-- 控制台 Appender -->
