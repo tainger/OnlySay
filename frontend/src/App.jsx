@@ -3,6 +3,26 @@ import './App.css'
 
 const API_BASE = 'http://localhost:8080'
 
+// 会话 ID：同一浏览器会话内复用，支撑跨轮槽位继承与意图切换
+const SESSION_KEY = 'onlysay-session-id'
+function getSessionId() {
+  let id = localStorage.getItem(SESSION_KEY)
+  if (!id) {
+    id = crypto.randomUUID()
+    localStorage.setItem(SESSION_KEY, id)
+  }
+  return id
+}
+
+// 意图信息摘要行：意图 + 命中层级 + 置信度
+function formatIntentInfo(data) {
+  if (!data.intent) return null
+  const slots = data.slots && Object.keys(data.slots).length > 0
+    ? ` | 槽位: ${Object.entries(data.slots).map(([k, v]) => `${k}=${v}`).join(', ')}`
+    : ''
+  return `🎯 ${data.intent} · ${data.hitLayer}${slots}`
+}
+
 function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -49,15 +69,31 @@ function App() {
       const res = await fetch(`${API_BASE}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userInput: text })
+        body: JSON.stringify({ userInput: text, sessionId: getSessionId() })
       })
       const data = await res.json()
 
-      if (data.success) {
+      if (data.clarification) {
+        // 澄清反问：渲染为 AI 消息
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: data.message,
+          intentInfo: formatIntentInfo(data)
+        }])
+      } else if (data.success && data.generatedText) {
+        // 正常生成
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: data.generatedText,
-          retrievedSamples: data.retrievedSamples
+          retrievedSamples: data.retrievedSamples,
+          intentInfo: formatIntentInfo(data)
+        }])
+      } else if (data.intent && data.intent !== 'CONTENT_GENERATION') {
+        // 已识别但不支持的意图（占位响应）
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `🚧 ${data.message}`,
+          intentInfo: formatIntentInfo(data)
         }])
       } else {
         setMessages(prev => [...prev, {
@@ -123,6 +159,29 @@ function App() {
             </div>
             <div className="message-content">
               <div className="message-text">{msg.content}</div>
+
+              {/* 意图识别信息 + trace 折叠展示 */}
+              {msg.intentInfo && (
+                <details className="intent-section">
+                  <summary className="intent-summary">{msg.intentInfo}</summary>
+                  {msg.trace && (
+                    <div className="trace-list">
+                      {msg.trace.layers?.map((layer, i) => (
+                        <div key={i} className="trace-item">
+                          <span className="trace-layer">{layer.layer}</span>
+                          <span className={`trace-status trace-${layer.status}`}>{layer.status}</span>
+                          <span className="trace-elapsed">{layer.elapsedMs}ms</span>
+                          {layer.detail && <span className="trace-detail">{layer.detail}</span>}
+                        </div>
+                      ))}
+                      <div className="trace-item trace-total">
+                        <span>总耗时</span>
+                        <span>{msg.trace.totalMs}ms</span>
+                      </div>
+                    </div>
+                  )}
+                </details>
+              )}
 
               {/* 检索详情 */}
               {msg.retrievedSamples && msg.retrievedSamples.length > 0 && (

@@ -279,3 +279,77 @@
   0%, 80%, 100% { transform: scale(0); }
   40% { transform: scale(1); }
 }
+
+/* ===== 意图识别信息与 trace ===== */
+.intent-section {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #666;
+}
+
+.intent-summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 8px;
+  background: #f0f7ff;
+  border-radius: 6px;
+  color: #1a73e8;
+}
+
+.intent-summary:hover {
+  background: #e3f0fd;
+}
+
+.trace-list {
+  margin-top: 6px;
+  padding: 8px;
+  background: #fafafa;
+  border-radius: 6px;
+}
+
+.trace-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.trace-layer {
+  font-weight: 600;
+  min-width: 80px;
+  color: #333;
+}
+
+.trace-status {
+  min-width: 56px;
+  padding: 0 6px;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.trace-hit { background: #d4edda; color: #155724; }
+.trace-miss { background: #e2e3e5; color: #495057; }
+.trace-failed { background: #f8d7da; color: #721c24; }
+.trace-disabled { background: #e9ecef; color: #6c757d; }
+.trace-rate-limited { background: #fff3cd; color: #856404; }
+
+.trace-elapsed {
+  color: #888;
+  min-width: 48px;
+}
+
+.trace-detail {
+  color: #999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+
+.trace-total {
+  margin-top: 4px;
+  border-top: 1px dashed #ddd;
+  padding-top: 4px;
+  font-weight: 600;
+  justify-content: space-between;
+}

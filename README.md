@@ -18,7 +18,7 @@
 | RAG 框架 | LangChain4j 1.19.0 |
 | 向量库 | InMemoryEmbeddingStore（内存，零配置） |
 | Embedding | 本地 ONNX 模型 `bge-small-zh-v1.5`（中文优化，首次运行自动下载） |
-| LLM | DeepSeek（OpenAI 兼容 API） |
+| LLM | DeepSeek V4（`deepseek-v4-flash` 生成/分类，`deepseek-v4-pro` 兜底复核，思考模式显式关闭） |
 | Web 框架 | Javalin 6.x（轻量 REST API） |
 | 前端 | React + Vite |
 | 交互 | Web 界面 + CLI 命令行 |
@@ -36,11 +36,25 @@ OnlySay/
 │   │   └── App.css                     # 样式
 │   └── package.json
 ├── src/main/java/com/onlysay/
-│   ├── ApiServer.java                   # Web API 服务入口（Javalin）
+│   ├── ApiServer.java                   # Web API 服务入口（Javalin，含意图路由）
 │   ├── OnlySayApplication.java          # CLI 主入口
 │   ├── Config.java                      # 配置读取（支持环境变量）
+│   ├── ChatModelFactory.java            # ChatModel 工厂（统一关闭思考模式）
 │   ├── IngestService.java               # 样本录入 + 向量化
-│   └── GenerateService.java             # 检索 + LLM 生成
+│   ├── GenerateService.java             # 检索 + LLM 生成
+│   └── intent/                          # 三级漏斗意图识别模块
+│       ├── IntentRecognizer.java        #   漏斗编排（规则→缓存→分类器→LLM兜底）
+│       ├── IntentRegistry.java          #   意图注册表（意图/槽位/关键词）
+│       ├── RuleIntentMatcher.java       #   第一级：关键词 + 正则槽位提取 + 短文本兜底
+│       ├── IntentClassifier.java        #   第二级 SPI + LlmIntentClassifier（v4-flash）
+│       ├── LlmFallbackRecognizer.java   #   第三级：LLM 兜底 + Few-shot JSON（v4-pro）
+│       ├── IntentValidator.java         #   输出校验（注册表驱动）
+│       ├── DialogueState.java           #   对话状态栈（槽位继承/意图切换）
+│       ├── TextNormalizer.java          #   轻量归一化（全角/零宽/空白）
+│       ├── IntentCache.java             #   精确匹配缓存（LRU）
+│       ├── DailyRateLimiter.java        #   LLM 兜底每日限流
+│       ├── IntentMetrics.java           #   指标聚合（命中率/兜底率/P95）
+│       └── CorrectionRecorder.java      #   澄清-修正配对落盘（数据回流 JSONL）
 ├── src/main/resources/
 │   └── application.properties           # 配置文件
 └── README.md
@@ -79,8 +93,27 @@ mvn compile exec:java
 | 方法 | 端点 | 说明 |
 |------|------|------|
 | POST | `/api/ingest` | 录入博主风格样本 |
-| POST | `/api/generate` | 根据用户输入生成同风格文案 |
+| POST | `/api/generate` | 前置意图路由：创作/改写走 RAG 生成，澄清返回反问，其余意图返回占位 |
+| POST | `/api/intent` | 纯意图识别调试（不触发下游执行），响应含 trace |
+| GET | `/api/intent/stats` | 识别指标：各层命中率、兜底率、澄清率、P95/P99 |
 | GET | `/api/health` | 健康检查 |
+
+#### 意图识别（三级漏斗）
+
+`/api/generate` 在生成前先过"门神"：
+
+```
+用户输入 → 归一化 → ①规则匹配(<10ms) → ②v4-flash 分类器(~1s) → ③v4-pro LLM兜底复核
+                         ↓命中              ↓≥0.85 采纳            ↓0.60-0.85 复核
+                       直接路由             直接路由                校验后路由
+```
+
+- **置信度策略**：≥0.85 直接采纳；0.60-0.85 降级 pro 复核；<0.60 触发澄清
+- **澄清兜底**：必需槽位缺失/全部层级失败 → 返回反问话术而非静默失败
+- **槽位继承**：同 sessionId 下"写一篇…→改成小红书风格"自动继承 topic
+- **成本控制**：精确匹配缓存（hitLayer=CACHE）+ LLM 兜底每日上限
+- **数据回流**：澄清→修正自动配对落盘 `data/intent-corrections.jsonl`
+- **一键回滚**：`intent.enabled=false` 恢复旧版直通生成行为
 
 #### 3. 启动前端调试界面
 
@@ -95,8 +128,8 @@ npm run dev
 **使用流程：**
 1. 点击右上角「录入样本」按钮，加载博主风格样本
 2. 在底部输入框输入你想分享的事情，按回车或点击「发送」
-3. AI 会检索最相似的 3 条风格样本（展示相似度），调用 DeepSeek 生成同风格文案
-4. 每条回复下方可展开查看检索到的风格样本详情
+3. AI 会先做意图识别：创作/改写请求检索最相似的 3 条风格样本（展示相似度）并生成同风格文案；模糊输入会收到澄清反问；热点/系统控制等意图返回"暂不支持"占位
+4. 每条回复下方可展开查看意图识别决策（trace 各层耗时）与检索到的风格样本详情
 
 #### 4. CLI 模式（可选）
 
@@ -166,5 +199,7 @@ mvn compile exec:java -Dexec.mainClass="com.onlysay.OnlySayApplication"
 - [ ] 多博主支持（按博主分 collection）
 - [ ] 智能体打分模块
 - [ ] 持久化向量库（Chroma/Milvus）
-- [ ] Web UI
+- [ ] Web UI（已有调试台）
 - [ ] RAG 重排序优化
+- [ ] 意图识别：修正样本消费与 few-shot 示例库自动扩充（当前已落盘 `data/intent-corrections.jsonl`）
+- [ ] 意图识别：HOT_SEARCH/SYSTEM_CONTROL 实际业务实现（当前返回占位）

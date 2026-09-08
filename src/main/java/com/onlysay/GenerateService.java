@@ -4,7 +4,6 @@ import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
@@ -26,13 +25,10 @@ public class GenerateService {
                            EmbeddingStore<TextSegment> embeddingStore) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
-        this.chatModel = OpenAiChatModel.builder()
-                .apiKey(Config.getDeepSeekApiKey())
-                .baseUrl(Config.getDeepSeekBaseUrl())
-                .modelName(Config.getDeepSeekModel())
-                .temperature(0.7)
-                .build();
-        System.out.println("DeepSeek 对话模型已就绪: " + Config.getDeepSeekModel());
+        // 统一走工厂构建：显式关闭 V4 思考模式（D4）
+        this.chatModel = ChatModelFactory.build(Config.getDeepSeekModel(), 0.7,
+                java.time.Duration.ofSeconds(120));
+        System.out.println("DeepSeek 对话模型已就绪: " + Config.getDeepSeekModel() + "（思考模式已关闭）");
     }
 
     /**

@@ -36,7 +36,8 @@ public class Config {
     }
 
     public static String getDeepSeekModel() {
-        return props.getProperty("deepseek.model", "deepseek-chat");
+        // deepseek-chat 已于 2026-07-24 被 DeepSeek 停用，默认迁移到 V4 系列
+        return props.getProperty("deepseek.model", "deepseek-v4-flash");
     }
 
     public static String getEmbeddingModelName() {
@@ -49,5 +50,37 @@ public class Config {
 
     public static double getRetrievalMinScore() {
         return Double.parseDouble(props.getProperty("retrieval.min-score", "0.5"));
+    }
+
+    // ===== 意图识别配置 =====
+
+    /** 意图识别总开关：false 时 /api/generate 行为与旧版一致（跳过识别直接生成） */
+    public static boolean isIntentEnabled() {
+        return Boolean.parseBoolean(props.getProperty("intent.enabled", "true"));
+    }
+
+    /** 第二级分类器：llm（deepseek-v4-flash 轻量分类）| none（跳过该层） */
+    public static String getIntentClassifier() {
+        return props.getProperty("intent.classifier", "llm");
+    }
+
+    /** 第二级轻量分类模型（非思考模式，快速便宜） */
+    public static String getIntentClassifierModel() {
+        return props.getProperty("intent.classifier.model", "deepseek-v4-flash");
+    }
+
+    /** 第三级 LLM 兜底复核模型（更强，处理 0.60-0.85 模糊区间） */
+    public static String getIntentLlmModel() {
+        return props.getProperty("intent.llm.model", "deepseek-v4-pro");
+    }
+
+    /** 第三级 LLM 兜底每日调用上限（自然日重置） */
+    public static int getIntentLlmDailyLimit() {
+        return Integer.parseInt(props.getProperty("intent.llm.daily-limit", "5000"));
+    }
+
+    /** 识别结果精确匹配缓存容量（LRU） */
+    public static int getIntentCacheSize() {
+        return Integer.parseInt(props.getProperty("intent.cache.size", "1000"));
     }
 }
